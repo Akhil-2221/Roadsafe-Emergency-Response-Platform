@@ -1,7 +1,10 @@
 import { prisma } from '../../config/database'
 import { AppError } from '../../utils/AppError'
 import { uploadToS3 } from '../../utils/storage'
-import { notifyContacts, notifyOwnerOfScan, sendHospitalPreAlert } from '../../utils/notifications'
+import {
+  notifyContacts,
+  sendHospitalPreAlert
+} from '../../utils/notifications'
 import { addTimelineEntry } from '../../utils/timeline'
 import { callAiService } from '../../utils/aiClient'
 import { auditLog } from '../../utils/audit'

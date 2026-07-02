@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt'
-import jwt from 'jsonwebtoken'
+import jwt, { Secret, SignOptions } from 'jsonwebtoken'
 import { randomBytes } from 'crypto'
 import { prisma } from '../../config/database'
 import { redis } from '../../config/redis'
@@ -44,16 +44,17 @@ interface TokenPair {
 // ─── Token helpers ───────────────────────────────────────────────
 
 function generateTokenPair(userId: string, role: string): TokenPair {
-  const accessToken = jwt.sign(
-    { sub: userId, role },
-    env.JWT_SECRET,
-    { expiresIn: env.JWT_EXPIRES_IN }
-  )
-  const refreshToken = jwt.sign(
-    { sub: userId, type: 'refresh' },
-    env.JWT_REFRESH_SECRET,
-    { expiresIn: env.JWT_REFRESH_EXPIRES_IN }
-  )
+const accessToken = jwt.sign(
+  { sub: userId, role },
+  env.JWT_SECRET as Secret,
+  { expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"] }
+)
+
+const refreshToken = jwt.sign(
+  { sub: userId, type: 'refresh' },
+  env.JWT_REFRESH_SECRET as Secret,
+  { expiresIn: env.JWT_REFRESH_EXPIRES_IN as SignOptions["expiresIn"] }
+)
   return { accessToken, refreshToken, expiresIn: 15 * 60 } // 15 min in seconds
 }
 
@@ -217,7 +218,7 @@ export async function refreshTokens(refreshToken: string) {
       userId: session.userId,
       token: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      deviceInfo: session.deviceInfo,
+      deviceInfo: session.deviceInfo ?? undefined,
       ipAddress: session.ipAddress,
       userAgent: session.userAgent,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),

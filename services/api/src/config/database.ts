@@ -21,8 +21,8 @@ if (process.env.NODE_ENV !== 'production') {
   global.__prisma = prisma
 }
 
-prisma.$on('error', (e) => logger.error('Prisma error:', { message: e.message }))
-prisma.$on('warn', (e) => logger.warn('Prisma warning:', { message: e.message }))
+// prisma.$on('error', (e) => logger.error('Prisma error:', { message: e.message }))
+// prisma.$on('warn', (e) => logger.warn('Prisma warning:', { message: e.message }))
 
 // Verify DB connection on startup
 prisma.$connect()

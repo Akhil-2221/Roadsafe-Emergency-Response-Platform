@@ -4,13 +4,12 @@ import path from 'path'
 dotenv.config({
   path: path.resolve(process.cwd(), '.env')
 })
-import express from 'express'
+
 import cors from 'cors'
 import helmet from 'helmet'
 import compression from 'compression'
 import cookieParser from 'cookie-parser'
 import morgan from 'morgan'
-import path from 'path'
 
 import { env } from './config/env'
 import { logger } from './config/logger'
@@ -28,8 +27,9 @@ import hospitalRoutes from './modules/hospitals/hospital.routes'
 import parkingRoutes from './modules/parking/parking.routes'
 import adminRoutes from './modules/admin/admin.routes'
 
-const app = express()
+import express, { Express } from 'express'
 
+const app: Express = express()
 // ─── Trust proxy (needed behind nginx / AWS ALB) ──────────────────
 app.set('trust proxy', 1)
 
