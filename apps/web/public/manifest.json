@@ -1,0 +1,16 @@
+{
+  "name": "RoadSafe Emergency",
+  "short_name": "RoadSafe",
+  "description": "Emergency response platform — saving lives on the road",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2626",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["medical", "utilities"],
+  "lang": "en-IN"
+}

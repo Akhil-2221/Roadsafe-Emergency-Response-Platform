@@ -1,0 +1,103 @@
+version: '3.9'
+
+services:
+  # ─── PostgreSQL ───────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: roadsafe-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: roadsafe
+      POSTGRES_USER: roadsafe
+      POSTGRES_PASSWORD: roadsafe_dev_pwd
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U roadsafe -d roadsafe"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Redis ────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: roadsafe-redis
+    restart: unless-stopped
+    command: redis-server --loglevel warning
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ─── API (Node.js) ────────────────────────────────────────────
+  api:
+    build:
+      context: ./services/api
+      dockerfile: ../../infra/docker/api.Dockerfile
+    container_name: roadsafe-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://roadsafe:roadsafe_dev_pwd@postgres:5432/roadsafe
+      REDIS_URL: redis://redis:6379
+      # NOTE: APP_URL/ALLOWED_ORIGINS come from .env (via env_file above).
+      # Do NOT hardcode localhost here — it silently overrides the LAN IP
+      # set by scripts/set-lan-url.sh and breaks QR scanning on phones.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      AI_SERVICE_URL: http://ai:8000
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./services/api/src:/app/src
+      - ./packages/database/prisma:/app/prisma
+      - uploads_data:/app/uploads
+    command: >
+      sh -c "npx prisma db push --skip-generate &&
+             npx ts-node-dev --respawn --transpile-only --exit-child src/index.ts"
+
+  # ─── AI Service (Python) ──────────────────────────────────────
+  ai:
+    build:
+      context: ./services/ai
+      dockerfile: ../../infra/docker/ai.Dockerfile
+    container_name: roadsafe-ai
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+
+  # ─── Web (Next.js) ────────────────────────────────────────────
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: ../../infra/docker/web.Dockerfile
+    container_name: roadsafe-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # From .env — NOT hardcoded, so scripts/set-lan-url.sh actually works
+      # for docker-compose too. Phones need APP_URL/NEXT_PUBLIC_API_URL to
+      # be your LAN IP or a tunnel URL, never "localhost".
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web/src:/app/src
+      - ./apps/web/public:/app/public
+
+volumes:
+  postgres_data:
+  uploads_data:

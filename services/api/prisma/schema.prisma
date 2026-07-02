@@ -1,0 +1,554 @@
+// RoadSafe Emergency — Prisma Schema
+// Production-grade database design
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════
+// ENUMS
+// ═══════════════════════════════════════
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum OtpPurpose {
+  PHONE_VERIFY
+  PASSWORD_RESET
+  LOGIN_2FA
+}
+
+enum Relationship {
+  FATHER
+  MOTHER
+  SIBLING
+  SPOUSE
+  RELATIVE
+  FRIEND
+  OTHER
+}
+
+enum VehicleType {
+  CAR
+  MOTORCYCLE
+  TRUCK
+  BUS
+  AUTO_RICKSHAW
+  OTHER
+}
+
+enum EmergencyStatus {
+  PENDING
+  EVIDENCE_COLLECTED
+  AI_VERIFYING
+  VERIFIED
+  ACTIVE
+  RESOLVED
+  FALSE_ALARM
+  CANCELLED
+}
+
+enum AiVerdict {
+  ACCIDENT
+  POSSIBLE_ACCIDENT
+  FALSE_ALARM
+}
+
+enum SeverityLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NotifChannel {
+  SMS
+  EMAIL
+  PUSH
+  WHATSAPP
+}
+
+enum NotifStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum ParkingReason {
+  BLOCKING_GATE
+  BLOCKING_VEHICLE
+  WRONG_PARKING
+  EMERGENCY
+  OTHER
+}
+
+// ═══════════════════════════════════════
+// AUTH & USERS
+// ═══════════════════════════════════════
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  phone            String?   @unique
+  passwordHash     String
+  role             Role      @default(USER)
+  emailVerified    Boolean   @default(false)
+  phoneVerified    Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  // Relations
+  profile        Profile?
+  vehicles       Vehicle[]
+  sessions       Session[]
+  otpCodes       OtpCode[]
+  passwordResets PasswordReset[]
+  auditLogs      AuditLog[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  refreshToken String   @unique
+  deviceInfo   Json?    // browser, OS, device type
+  ipAddress    String?
+  userAgent    String?
+  isValid      Boolean  @default(true)
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([refreshToken])
+  @@map("sessions")
+}
+
+model OtpCode {
+  id        String     @id @default(cuid())
+  userId    String
+  phone     String
+  code      String     // hashed
+  purpose   OtpPurpose
+  attempts  Int        @default(0)
+  verified  Boolean    @default(false)
+  expiresAt DateTime
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([phone])
+  @@map("otp_codes")
+}
+
+// Bystander OTP — separate from OtpCode because bystanders are anonymous
+// (no User record). Used to verify a real person is reporting the accident
+// before an EmergencyEvent is created, when REQUIRE_BYSTANDER_OTP=true.
+model BystanderOtp {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String   // bcrypt hashed
+  purpose   String   @default("EMERGENCY") // EMERGENCY | PLATE_LOOKUP
+  attempts  Int      @default(0)
+  isUsed    Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([phone])
+  @@index([phone, isUsed])
+  @@map("bystander_otps")
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique // hashed
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_resets")
+}
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  used      Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@map("email_verifications")
+}
+
+// ═══════════════════════════════════════
+// PROFILE & MEDICAL PASSPORT
+// ═══════════════════════════════════════
+
+model Profile {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  fullName    String
+  photoUrl    String?
+  dateOfBirth DateTime?
+
+  // Medical passport — stored encrypted in app layer
+  // These fields hold AES-256-GCM ciphertext when medicalEncrypted = true
+  bloodGroup          String?
+  allergies           String[]
+  chronicConditions   String[]
+  currentMedications  String[]
+  organDonor          Boolean  @default(false)
+  medicalNotes        String?
+  medicalEncrypted    Boolean  @default(false) // flag: fields are encrypted
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emergencyContacts EmergencyContact[]
+
+  @@map("profiles")
+}
+
+model EmergencyContact {
+  id           String       @id @default(cuid())
+  profileId    String
+  relationship Relationship
+  name         String
+  phone        String
+  email        String?
+  priority     Int          @default(1) // 1 = highest
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([profileId])
+  @@map("emergency_contacts")
+}
+
+// ═══════════════════════════════════════
+// VEHICLES & QR CODES
+// ═══════════════════════════════════════
+
+model Vehicle {
+  id            String      @id @default(cuid())
+  userId        String
+  vehicleNumber String      @unique
+  vehicleType   VehicleType
+  make          String?
+  model         String?
+  color         String?
+  yearOfMfg     Int?
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  qrCode     QrCode?
+  parkingQr  ParkingQr?
+  emergencyEvents EmergencyEvent[]
+
+  @@index([userId])
+  @@index([vehicleNumber])
+  @@map("vehicles")
+}
+
+model QrCode {
+  id            String    @id @default(cuid())
+  vehicleId     String    @unique
+  token         String    @unique // RS256 signed JWT
+  qrImageUrl    String?
+  scanCount     Int       @default(0)
+  lastScannedAt DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  vehicle         Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  emergencyEvents EmergencyEvent[]
+
+  @@index([token])
+  @@map("qr_codes")
+}
+
+
+
+model EmergencyEvent {
+  id         String          @id @default(cuid())
+  incidentId String          @unique // Human-readable: RSEMG-2025-001234
+  shareToken String          @unique // Secure token for family tracking URL
+  qrCodeId   String?         // Nullable: can be created via plate search too
+  vehicleId  String?         // Direct vehicle link (for plate/mobile search flow)
+  status     EmergencyStatus @default(PENDING)
+
+  // Access method
+  accessMethod AccessMethod @default(QR_SCAN) // QR_SCAN | PLATE_SEARCH | MOBILE_SEARCH
+
+  // Bystander capture
+  bystanderName        String?
+  bystanderPhone       String?
+  bystanderSelfieUrl   String?
+  bystanderDeviceId    String?
+  bystanderIp          String?
+  bystanderUserAgent   String?
+  accidentPhotoUrl     String?
+  additionalPhotoUrls  String[]
+
+  // Bystander verification — confirms a real human is physically present
+  // (optional gate; enabled per-deployment via REQUIRE_BYSTANDER_OTP env flag)
+  bystanderOtpVerified    Boolean   @default(false)
+  declarationAccepted     Boolean   @default(false)
+  declarationAcceptedAt   DateTime?
+
+  // Location (initial)
+  latitude         Float
+  longitude        Float
+  locationAddress  String?
+  locationAccuracy Float?
+
+  // Latest location (updated live by bystander)
+  lastLatitude  Float?
+  lastLongitude Float?
+  lastLocationAt DateTime?
+
+  // AI results
+  aiVerdict            AiVerdict?
+  aiVerdictScore       Float?
+  aiVerdictReason      String?
+  aiSeverity           SeverityLevel?
+  aiSeverityScore      Float?
+  aiSeverityReason     String?
+  aiRecommendedActions String[]
+
+  // Hospital
+  recommendedHospitalId String?
+  hospitalEtaMinutes    Int?
+  hospitalRouteUrl      String?
+  hospitalNotified      Boolean  @default(false)
+  hospitalNotifiedAt    DateTime?
+
+  // Owner response
+  ownerAlerted Boolean  @default(false)
+  ownerAckedOk Boolean  @default(false)
+  ownerAckedAt DateTime?
+
+  // Resolution
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  qrCode          QrCode?           @relation(fields: [qrCodeId], references: [id])
+  vehicle         Vehicle?          @relation(fields: [vehicleId], references: [id])
+  hospital        Hospital?         @relation(fields: [recommendedHospitalId], references: [id])
+  timeline        TimelineEntry[]
+  notifications   Notification[]
+  locationUpdates LocationUpdate[]
+
+  @@index([qrCodeId])
+  @@index([incidentId])
+  @@index([shareToken])
+  @@index([status])
+  @@index([createdAt])
+  @@map("emergency_events")
+}
+
+model LocationUpdate {
+  id               String   @id @default(cuid())
+  emergencyEventId String
+  latitude         Float
+  longitude        Float
+  accuracy         Float?
+  source           String   @default("bystander") // bystander | victim | responder
+  createdAt        DateTime @default(now())
+
+  event EmergencyEvent @relation(fields: [emergencyEventId], references: [id], onDelete: Cascade)
+
+  @@index([emergencyEventId, createdAt])
+  @@map("location_updates")
+}
+
+enum AccessMethod {
+  QR_SCAN
+  PLATE_SEARCH
+  MOBILE_SEARCH
+}
+
+model TimelineEntry {
+  id               String   @id @default(cuid())
+  emergencyEventId String
+  action           String   // e.g. "ACCIDENT_REPORTED", "FAMILY_NOTIFIED"
+  description      String
+  metadata         Json?
+  createdAt        DateTime @default(now())
+
+  event EmergencyEvent @relation(fields: [emergencyEventId], references: [id], onDelete: Cascade)
+
+  @@index([emergencyEventId])
+  @@map("timeline_entries")
+}
+
+model Notification {
+  id               String       @id @default(cuid())
+  emergencyEventId String
+  contactName      String
+  contactPhone     String?
+  contactEmail     String?
+  channel          NotifChannel
+  status           NotifStatus  @default(PENDING)
+  externalId       String?      // Twilio/SendGrid message ID
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  errorMessage     String?
+  retryCount       Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  event EmergencyEvent @relation(fields: [emergencyEventId], references: [id], onDelete: Cascade)
+
+  @@index([emergencyEventId])
+  @@index([status])
+  @@map("notifications")
+}
+
+// ═══════════════════════════════════════
+// HOSPITALS
+// ═══════════════════════════════════════
+
+model Hospital {
+  id               String   @id @default(cuid())
+  name             String
+  address          String
+  city             String
+  state            String
+  pincode          String?
+  latitude         Float
+  longitude        Float
+  phone            String
+  emergencyPhone   String?
+  emergencyEmail   String?
+
+  // Capabilities
+  hasTraumaCenter  Boolean @default(false)
+  hasBloodBank     Boolean @default(false)
+  hasICU           Boolean @default(true)
+  hasNeurology     Boolean @default(false)
+  hasCardiology    Boolean @default(false)
+  hasOrthopedics   Boolean @default(false)
+  hasBurnUnit      Boolean @default(false)
+  bedCapacity      Int?
+  icuBeds          Int?
+
+  isActive         Boolean  @default(true)
+  rating           Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  emergencyEvents EmergencyEvent[]
+
+  @@index([latitude, longitude])
+  @@index([city])
+  @@map("hospitals")
+}
+
+// ═══════════════════════════════════════
+// PARKING MODE
+// ═══════════════════════════════════════
+
+model ParkingQr {
+  id         String  @id @default(cuid())
+  vehicleId  String  @unique
+  token      String  @unique
+  qrImageUrl String?
+  isActive   Boolean @default(true)
+  createdAt  DateTime @default(now())
+
+  vehicle   Vehicle          @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  contacts  ParkingContact[]
+
+  @@index([token])
+  @@map("parking_qr_codes")
+}
+
+model ParkingContact {
+  id          String        @id @default(cuid())
+  parkingQrId String
+  callerName  String
+  callerPhone String
+  reason      ParkingReason
+  message     String?
+  callerIp    String?
+  notifiedAt  DateTime?
+  createdAt   DateTime      @default(now())
+
+  parkingQr ParkingQr @relation(fields: [parkingQrId], references: [id], onDelete: Cascade)
+
+  @@index([parkingQrId])
+  @@map("parking_contacts")
+}
+
+// ═══════════════════════════════════════
+// AUDIT & SECURITY
+// ═══════════════════════════════════════
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String   // e.g. "LOGIN", "QR_SCAN", "MEDICAL_ACCESSED"
+  resource   String   // e.g. "User", "EmergencyEvent"
+  resourceId String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  key       String   @unique // ip:action or userId:action
+  count     Int      @default(1)
+  resetAt   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@index([resetAt])
+  @@map("rate_limit_entries")
+}

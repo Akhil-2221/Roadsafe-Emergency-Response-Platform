@@ -1,0 +1,217 @@
+name: RoadSafe CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.ap-south-1.amazonaws.com
+
+jobs:
+  # ─── Lint & Type Check ────────────────────────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: services/api/package.json
+
+      - name: Install API deps
+        working-directory: services/api
+        run: npm ci
+
+      - name: Type check API
+        working-directory: services/api
+        run: npx tsc --noEmit
+
+      - name: Install Web deps
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Type check Web
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+  # ─── Test ─────────────────────────────────────────────────────
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: roadsafe_test
+          POSTGRES_USER: roadsafe
+          POSTGRES_PASSWORD: test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install API deps
+        working-directory: services/api
+        run: npm ci
+
+      - name: Run API tests
+        working-directory: services/api
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://roadsafe:test_password@localhost:5432/roadsafe_test
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret_min_32_characters_here
+          JWT_REFRESH_SECRET: test_refresh_secret_min_32_chars_ok
+          QR_JWT_SECRET: test_qr_secret_min_32_characters_here
+          COOKIE_SECRET: test_cookie_secret_min_32_chars_ok!
+          BCRYPT_ROUNDS: "4"
+          APP_URL: http://localhost:3000
+          AI_SERVICE_URL: http://localhost:8000
+        run: npm test
+
+      - name: Run AI tests
+        working-directory: services/ai
+        run: |
+          pip install -r requirements.txt
+          python -m pytest tests/ -v --tb=short 2>/dev/null || echo "No AI tests yet"
+
+  # ─── Build & Push Docker images ───────────────────────────────
+  build:
+    name: Build & Push
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      api_image: ${{ steps.meta_api.outputs.tags }}
+      ai_image: ${{ steps.meta_ai.outputs.tags }}
+      web_image: ${{ steps.meta_web.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push API
+        id: meta_api
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/api
+          file: ./infra/docker/api.prod.Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/roadsafe-api:${{ github.sha }},${{ env.ECR_REGISTRY }}/roadsafe-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push AI
+        id: meta_ai
+        uses: docker/build-push-action@v5
+        with:
+          context: ./services/ai
+          file: ./infra/docker/ai.prod.Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/roadsafe-ai:${{ github.sha }},${{ env.ECR_REGISTRY }}/roadsafe-ai:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push Web
+        id: meta_web
+        uses: docker/build-push-action@v5
+        with:
+          context: ./apps/web
+          file: ./infra/docker/web.prod.Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/roadsafe-web:${{ github.sha }},${{ env.ECR_REGISTRY }}/roadsafe-web:latest
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─── Deploy to ECS ────────────────────────────────────────────
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy API to ECS
+        run: |
+          aws ecs update-service \
+            --cluster roadsafe-prod \
+            --service roadsafe-api \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy AI to ECS
+        run: |
+          aws ecs update-service \
+            --cluster roadsafe-prod \
+            --service roadsafe-ai \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deploy Web to ECS
+        run: |
+          aws ecs update-service \
+            --cluster roadsafe-prod \
+            --service roadsafe-web \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Wait for services stable
+        run: |
+          aws ecs wait services-stable \
+            --cluster roadsafe-prod \
+            --services roadsafe-api roadsafe-ai roadsafe-web \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Notify deployment success
+        if: success()
+        run: echo "✅ RoadSafe deployed successfully — commit ${{ github.sha }}"

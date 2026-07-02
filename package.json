@@ -1,0 +1,17 @@
+{
+  "name": "roadsafe",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter api dev\" \"pnpm --filter web dev\" \"pnpm --filter ai dev\"",
+    "db:generate": "pnpm --filter database prisma generate",
+    "db:migrate": "pnpm --filter database prisma migrate dev",
+    "db:seed": "pnpm --filter database prisma db seed",
+    "db:studio": "pnpm --filter database prisma studio"
+  }
+}

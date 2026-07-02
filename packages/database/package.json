@@ -1,0 +1,25 @@
+{
+  "name": "@roadsafe/database",
+  "version": "1.0.0",
+  "main": "./index.ts",
+  "scripts": {
+    "generate": "prisma generate",
+    "push": "prisma db push",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "seed": "npx ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
+    "studio": "prisma studio",
+    "reset": "prisma migrate reset --force"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.10.0",
+    "bcrypt": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/node": "^20.11.25",
+    "prisma": "^5.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
