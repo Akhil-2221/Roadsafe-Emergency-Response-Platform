@@ -45,7 +45,19 @@ export async function generateQrForVehicle(vehicleId: string, userId: string) {
   const s3Key = `qr/${vehicleId}/emergency-qr-${Date.now()}.png`
   const qrImageUrl = await uploadToS3(qrBuffer, s3Key, 'image/png')
 
-  const qrCode = await prisma.qrCode.create({
+let qrCode
+
+if (vehicle.qrCode) {
+  qrCode = await prisma.qrCode.update({
+    where: { id: vehicle.qrCode.id },
+    data: {
+      token,
+      qrImageUrl,
+      isActive: true,
+    },
+  })
+} else {
+  qrCode = await prisma.qrCode.create({
     data: {
       vehicleId,
       token,
@@ -53,6 +65,7 @@ export async function generateQrForVehicle(vehicleId: string, userId: string) {
       isActive: true,
     },
   })
+}
 
   return { qrCode, qrUrl, qrImageUrl }
 }
@@ -80,11 +93,27 @@ export async function generateParkingQr(vehicleId: string, userId: string) {
 
   const s3Key = `qr/${vehicleId}/parking-qr-${Date.now()}.png`
   const qrImageUrl = await uploadToS3(qrBuffer, s3Key, 'image/png')
+let parkingQr
 
-  const parkingQr = await prisma.parkingQr.create({
-    data: { vehicleId, token, qrImageUrl, isActive: true },
+if (vehicle.parkingQr) {
+  parkingQr = await prisma.parkingQr.update({
+    where: { id: vehicle.parkingQr.id },
+    data: {
+      token,
+      qrImageUrl,
+      isActive: true,
+    },
   })
-
+} else {
+  parkingQr = await prisma.parkingQr.create({
+    data: {
+      vehicleId,
+      token,
+      qrImageUrl,
+      isActive: true,
+    },
+  })
+}
   return { parkingQr, qrUrl, qrImageUrl }
 }
 
