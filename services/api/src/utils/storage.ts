@@ -35,7 +35,7 @@ export async function uploadToS3(
     fs.mkdirSync(uploadsDir, { recursive: true })
     const filename = key.replace(/\//g, '-')
     fs.writeFileSync(path.join(uploadsDir, filename), buffer)
-    const url = `http://localhost:${env.PORT}/uploads/${filename}`
+    const url = `${env.APP_URL}/uploads/${filename}`
     logger.info('[S3 MOCK] File saved locally', { url })
     return url
   }
