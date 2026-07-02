@@ -66,6 +66,7 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 app.use(cookieParser(env.COOKIE_SECRET))
 app.use(requestId)
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
 
 if (env.NODE_ENV !== 'test') {
   app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev', {
@@ -75,9 +76,9 @@ if (env.NODE_ENV !== 'test') {
 }
 
 // ─── Static uploads (dev only - production uses S3) ───────────────
-if (env.NODE_ENV === 'development') {
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')))
-}
+
+
+
 
 // ─── Health check ─────────────────────────────────────────────────
 app.get('/health', async (_req, res) => {
