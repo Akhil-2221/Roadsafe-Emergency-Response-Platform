@@ -32,12 +32,30 @@ export async function uploadToS3(
   if (!client || !env.S3_BUCKET) {
     // Dev fallback: save to local uploads dir
     const uploadsDir = path.join(process.cwd(), 'uploads')
-    fs.mkdirSync(uploadsDir, { recursive: true })
-    const filename = key.replace(/\//g, '-')
-    fs.writeFileSync(path.join(uploadsDir, filename), buffer)
-    const url = `${env.APP_URL}/uploads/${filename}`
-    logger.info('[S3 MOCK] File saved locally', { url })
-    return url
+
+logger.info('Current working directory', {
+  cwd: process.cwd(),
+})
+
+logger.info('Uploads directory', {
+  uploadsDir,
+})
+
+fs.mkdirSync(uploadsDir, { recursive: true })
+
+const filename = key.replace(/\//g, '-')
+const filePath = path.join(uploadsDir, filename)
+
+fs.writeFileSync(filePath, buffer)
+
+const url = `${env.APP_URL}/uploads/${filename}`
+
+logger.info('[S3 MOCK] File saved locally', {
+  url,
+  filePath,
+})
+
+return url
   }
 
   await client.send(new PutObjectCommand({
