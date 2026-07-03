@@ -48,7 +48,7 @@ const filePath = path.join(uploadsDir, filename)
 
 fs.writeFileSync(filePath, buffer)
 
-const url = `${env.APP_URL}/uploads/${filename}`
+const url = `https://roadsafe-api.onrender.com/uploads/${filename}`
 
 logger.info('[S3 MOCK] File saved locally', {
   url,
