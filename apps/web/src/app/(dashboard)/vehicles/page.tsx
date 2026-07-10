@@ -103,10 +103,31 @@ export default function VehiclesPage() {
     finally { setGeneratingQr(null) }
   }
 
-  const downloadQr = (url: string, vehicleNumber: string) => {
+const downloadQr = async (url: string, vehicleNumber: string) => {
+  try {
+    const response = await fetch(url)
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch QR image')
+    }
+
+    const blob = await response.blob()
+    const blobUrl = window.URL.createObjectURL(blob)
+
     const a = document.createElement('a')
-    a.href = url; a.download = `roadsafe-qr-${vehicleNumber}.png`; a.click()
+    a.href = blobUrl
+    a.download = `roadsafe-qr-${vehicleNumber}.png`
+
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+
+    window.URL.revokeObjectURL(blobUrl)
+  } catch (err) {
+    console.error('Download failed:', err)
+    alert('Unable to download QR code.')
   }
+}
 
   if (loading) return <div className="flex justify-center py-20"><Spinner className="w-8 h-8 text-red-600" /></div>
 
