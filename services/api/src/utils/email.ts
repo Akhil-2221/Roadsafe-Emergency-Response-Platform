@@ -49,6 +49,14 @@ if (env.SENDGRID_API_KEY) {
 //   }
 // }
 export async function sendEmail(options: EmailOptions): Promise<void> {
+  if (!env.SENDGRID_API_KEY) {
+    logger.info('[EMAIL MOCK]', {
+      to: options.to,
+      subject: options.subject,
+    })
+    return
+  }
+
   try {
     await sgMail.send({
       to: options.to,
@@ -56,19 +64,20 @@ export async function sendEmail(options: EmailOptions): Promise<void> {
         email: env.SENDGRID_FROM_EMAIL,
         name: env.SENDGRID_FROM_NAME,
       },
-      subject: "RoadSafe Test Email",
-      text: "This is a plain text test email from RoadSafe.",
-      html: `
-        <h1>RoadSafe Test</h1>
-        <p>If you received this email, SendGrid is working correctly.</p>
-      `,
+      subject: options.subject,
+      html: options.html,
+      text: options.text,
     })
 
-    logger.info("TEST EMAIL SENT", {
+    logger.info('Email sent', {
       to: options.to,
+      subject: options.subject,
     })
   } catch (err: any) {
-    console.error(err.response?.body || err)
+    logger.error('SendGrid email failed', {
+      message: err.message,
+      response: err.response?.body,
+    })
     throw err
   }
 }
